@@ -1,4 +1,5 @@
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class Encoder {
@@ -6,17 +7,54 @@ public class Encoder {
     private List<Block> Yencoder;
     private List<Block> Uencoder;
     private List<Block> Vencoder;
+    private List<Block> Gencoder;
+    private List<List<Integer>> quantizationMatrix;
 
     public Encoder(Image image) {
         this.image = image;
         this.Yencoder = new ArrayList<>();
         this.Uencoder = new ArrayList<>();
         this.Vencoder = new ArrayList<>();
+        this.Gencoder = new ArrayList<>();
+        this.quantizationMatrix = new ArrayList<>();
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(6, 4, 4, 6, 10, 16, 20, 24)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(5, 5, 6, 8, 10, 23, 24, 22)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(6, 5, 6, 10, 16, 23, 28, 22)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(6, 7, 9, 12, 20, 35, 32, 25)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(7, 9, 15, 22, 27, 44, 41, 31)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(10, 14, 22, 26, 32, 42, 45, 37)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(20, 26, 31, 35, 41, 48, 48, 40)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(29, 37, 38, 39, 45, 40, 41, 40)));
     }
 
     public void encode() {
+        //lab1
         this.image.readFromFile();
         this.image.RGBtoYUV();
+        this.formBlocksYUV();
+
+        //lab2
+        for (int i = 0; i < Uencoder.size(); i++) {
+            Uencoder.get(i).setValues(convertBlock4x4to8x8(Uencoder.get(i).getValues()));
+            Vencoder.get(i).setValues(convertBlock4x4to8x8(Vencoder.get(i).getValues()));
+        }
+        for (int i = 0; i < Uencoder.size(); i++) {
+            Yencoder.get(i).setValues(subtract128(Yencoder.get(i).getValues()));
+            Uencoder.get(i).setValues(subtract128(Uencoder.get(i).getValues()));
+            Vencoder.get(i).setValues(subtract128(Vencoder.get(i).getValues()));
+        }
+        for (int i = 0; i < Uencoder.size(); i++) {
+            Gencoder.add(new Block(forwardDCT(Yencoder.get(i).getValues()), Yencoder.get(i).getBlockType(), Yencoder.get(i).getStartPosition(), Yencoder.get(i).getEndPosition()));
+            Gencoder.add(new Block(forwardDCT(Uencoder.get(i).getValues()), Uencoder.get(i).getBlockType(), Uencoder.get(i).getStartPosition(), Uencoder.get(i).getEndPosition()));
+            Gencoder.add(new Block(forwardDCT(Vencoder.get(i).getValues()), Vencoder.get(i).getBlockType(), Vencoder.get(i).getStartPosition(), Vencoder.get(i).getEndPosition()));
+        }
+
+        for (int i = 0; i < Gencoder.size(); i++) {
+            this.Gencoder.get(i).setValues(this.quantizationPhase(Gencoder.get(i).getValues()));
+        }
+    }
+
+    public void formBlocksYUV() {
         List<List<Float>> Ymatrix = this.image.getYmatrix();
         List<List<Float>> Umatrix = this.image.getUmatrix();
         List<List<Float>> Vmatrix = this.image.getVmatrix();
@@ -61,6 +99,63 @@ public class Encoder {
         }
     }
 
+    public List<List<Float>> convertBlock4x4to8x8(List<List<Float>> matrix) {
+        List<List<Float>> resultMatrix = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            resultMatrix.add(new ArrayList<>());
+            for (int j = 0; j < 8; j++) {
+                resultMatrix.get(i).add(matrix.get(i / 2).get(j / 2));
+            }
+        }
+        return resultMatrix;
+    }
+
+    public List<List<Float>> subtract128(List<List<Float>> matrix) {
+        List<List<Float>> resultMatrix = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            resultMatrix.add(new ArrayList<>());
+            for (int j = 0; j < 8; j++) {
+                resultMatrix.get(i).add(matrix.get(i).get(j) - 128);
+            }
+        }
+        return resultMatrix;
+    }
+
+    public List<List<Float>> forwardDCT(List<List<Float>> matrix) {
+        List<List<Float>> resultMatrix = new ArrayList<>();
+        for (int u = 0; u < 8; u++) {
+            resultMatrix.add(new ArrayList<>());
+            for (int v = 0; v < 8; v++) {
+                float value = 0.25f;
+                if (u == 0 && v == 0) {
+                    value *= (float) (1 / Math.sqrt(2)) * (1 / Math.sqrt(2));
+                } else if (u == 0 || v == 0) {
+                    value *= (float) (1 / Math.sqrt(2));
+                }
+                float sum = 0;
+                for (int x = 0; x < 8; x++) {
+                    for (int y = 0; y < 8; y++) {
+                        sum += matrix.get(x).get(y) * Math.cos((2 * x + 1) * u * Math.PI / 16.0f) * Math.cos((2 * y + 1) * v * Math.PI / 16.0f);
+                    }
+                }
+                value *= sum;
+                resultMatrix.get(u).add(value);
+            }
+        }
+        return resultMatrix;
+    }
+
+    public List<List<Float>> quantizationPhase(List<List<Float>> matrix) {
+        List<List<Float>> resultMatrix = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            resultMatrix.add(new ArrayList<>());
+            for (int j = 0; j < 8; j++) {
+                resultMatrix.get(i).add((float) (int) (matrix.get(i).get(j) / this.quantizationMatrix.get(i).get(j)));
+            }
+        }
+        return resultMatrix;
+    }
+
     public List<Block> getYencoder() {
         return Yencoder;
     }
@@ -71,5 +166,9 @@ public class Encoder {
 
     public List<Block> getVencoder() {
         return Vencoder;
+    }
+
+    public List<Block> getGencoder() {
+        return Gencoder;
     }
 }

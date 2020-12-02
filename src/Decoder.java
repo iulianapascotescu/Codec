@@ -1,4 +1,5 @@
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class Decoder {
@@ -6,15 +7,114 @@ public class Decoder {
     private List<Block> Yencoder;
     private List<Block> Uencoder;
     private List<Block> Vencoder;
+    private List<Block> Gencoder;
+    private List<List<Integer>> quantizationMatrix;
 
-    public Decoder(Image image, List<Block> yencoder, List<Block> uencoder, List<Block> vencoder) {
+    public Decoder(Image image, Encoder encoder) {
         this.image = image;
-        Yencoder = yencoder;
-        Uencoder = uencoder;
-        Vencoder = vencoder;
+        this.Gencoder = encoder.getGencoder();
+        Yencoder = new ArrayList<>();
+        Uencoder = new ArrayList<>();
+        Vencoder = new ArrayList<>();
+        this.quantizationMatrix = new ArrayList<>();
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(6, 4, 4, 6, 10, 16, 20, 24)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(5, 5, 6, 8, 10, 23, 24, 22)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(6, 5, 6, 10, 16, 23, 28, 22)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(6, 7, 9, 12, 20, 35, 32, 25)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(7, 9, 15, 22, 27, 44, 41, 31)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(10, 14, 22, 26, 32, 42, 45, 37)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(20, 26, 31, 35, 41, 48, 48, 40)));
+        quantizationMatrix.add(new ArrayList<>(Arrays.asList(29, 37, 38, 39, 45, 40, 41, 40)));
     }
 
     public void decode() {
+        //lab2
+        for (int i = 0; i < Gencoder.size(); i++)
+            Gencoder.get(i).setValues(this.dequantizationPhase(Gencoder.get(i).getValues()));
+
+        for (int i = 0; i < Gencoder.size(); i++) {
+            Block newBlock = new Block(this.inverseDCT(Gencoder.get(i).getValues()), Gencoder.get(i).getBlockType(), Gencoder.get(i).getStartPosition(), Gencoder.get(i).getEndPosition());
+            switch (Gencoder.get(i).getBlockType()) {
+                case "Y" -> this.Yencoder.add(newBlock);
+                case "U" -> this.Uencoder.add(newBlock);
+                case "V" -> this.Vencoder.add(newBlock);
+            }
+        }
+
+        for(int i=0;i<Yencoder.size();i++){
+            Yencoder.get(i).setValues(add128(Yencoder.get(i).getValues()));
+            Uencoder.get(i).setValues(add128(Uencoder.get(i).getValues()));
+            Vencoder.get(i).setValues(add128(Vencoder.get(i).getValues()));
+        }
+
+        for (int i = 0; i < Vencoder.size(); i++) {
+            Uencoder.get(i).setValues(this.convertBlock8to4(Uencoder.get(i).getValues()));
+            Vencoder.get(i).setValues(this.convertBlock8to4(Vencoder.get(i).getValues()));
+        }
+
+        //lab1
+        this.conversion();
+
+    }
+
+    public List<List<Float>> dequantizationPhase(List<List<Float>> matrix) {
+        List<List<Float>> resultMatrix = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            resultMatrix.add(new ArrayList<>());
+            for (int j = 0; j < 8; j++) {
+                resultMatrix.get(i).add(matrix.get(i).get(j) * this.quantizationMatrix.get(i).get(j));
+            }
+        }
+        return resultMatrix;
+    }
+
+    public List<List<Float>> inverseDCT(List<List<Float>> matrix) {
+        List<List<Float>> resultMatrix = new ArrayList<>();
+        for (int x = 0; x < 8; x++) {
+            resultMatrix.add(new ArrayList<>());
+            for (int y = 0; y < 8; y++) {
+                float sum = 0;
+                for (int u = 0; u < 8; u++) {
+                    for (int v = 0; v < 8; v++) {
+                        double cos = Math.cos((2 * x + 1) * u * Math.PI / 16.0);
+                        double cos1 = Math.cos((2 * y + 1) * v * Math.PI / 16.0);
+                        if (u == 0 && v == 0)
+                            sum += (1.0 / Math.sqrt(2)) * (1.0 / Math.sqrt(2)) * matrix.get(u).get(v) * cos * cos1;
+                        else if (u == 0 || v == 0)
+                            sum += (1.0 / Math.sqrt(2)) * matrix.get(u).get(v) * cos * cos1;
+                        else
+                            sum += matrix.get(u).get(v) * cos * cos1;
+                    }
+                }
+                sum *= 0.25f;
+                resultMatrix.get(x).add(sum);
+            }
+        }
+        return resultMatrix;
+    }
+
+    public List<List<Float>> add128(List<List<Float>> matrix) {
+        List<List<Float>> resultMatrix = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            resultMatrix.add(new ArrayList<>());
+            for (int j = 0; j < 8; j++) {
+                resultMatrix.get(i).add(matrix.get(i).get(j) + 128);
+            }
+        }
+        return resultMatrix;
+    }
+
+    public List<List<Float>> convertBlock8to4(List<List<Float>> matrix) {
+        List<List<Float>> matrixResult = new ArrayList<>();
+        for (int i = 0; i < 8; i = i + 2) {
+            matrixResult.add(new ArrayList<>());
+            for (int j = 0; j < 8; j = j + 2)
+                matrixResult.get(i / 2).add(matrix.get(i).get(j));
+        }
+        return matrixResult;
+    }
+
+    public void conversion() {
         List<List<Float>> Ydecoder = new ArrayList<>();
         List<List<Float>> Udecoder = new ArrayList<>();
         List<List<Float>> Vdecoder = new ArrayList<>();
