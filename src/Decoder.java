@@ -9,10 +9,14 @@ public class Decoder {
     private List<Block> Vencoder;
     private List<Block> Gencoder;
     private List<List<Integer>> quantizationMatrix;
+    private List<List<Integer>> vectorOfBytes;
+    private Encoder encoder;
 
     public Decoder(Image image, Encoder encoder) {
+        this.encoder = encoder;
         this.image = image;
-        this.Gencoder = encoder.getGencoder();
+        this.vectorOfBytes = encoder.getVectorOfBytes();
+        this.Gencoder = new ArrayList<>();
         Yencoder = new ArrayList<>();
         Uencoder = new ArrayList<>();
         Vencoder = new ArrayList<>();
@@ -28,6 +32,9 @@ public class Decoder {
     }
 
     public void decode() {
+        //lab3
+        this.entropyDecoding();
+
         //lab2
         for (int i = 0; i < Gencoder.size(); i++)
             Gencoder.get(i).setValues(this.dequantizationPhase(Gencoder.get(i).getValues()));
@@ -41,7 +48,7 @@ public class Decoder {
             }
         }
 
-        for(int i=0;i<Yencoder.size();i++){
+        for (int i = 0; i < Yencoder.size(); i++) {
             Yencoder.get(i).setValues(add128(Yencoder.get(i).getValues()));
             Uencoder.get(i).setValues(add128(Uencoder.get(i).getValues()));
             Vencoder.get(i).setValues(add128(Vencoder.get(i).getValues()));
@@ -55,6 +62,93 @@ public class Decoder {
         //lab1
         this.conversion();
 
+    }
+
+    public void entropyDecoding(){
+        int index = 0;
+        String type = "Y";
+
+        int imageWidth = this.encoder.getImage().getResolution().getElement1();
+        int blockLine = 0;
+        int blockColumn = 0;
+
+        while (index < vectorOfBytes.size()) {
+            List<Float> values = new ArrayList<>();
+
+            List<Integer> DCcoeff = vectorOfBytes.get(index);
+            index++;
+            values.add(Float.parseFloat(DCcoeff.get(1).toString()));
+            while (values.size() < 64 && !(vectorOfBytes.get(index).size() == 2 && vectorOfBytes.get(index).get(0) == 0 && vectorOfBytes.get(index).get(1) == 0)) {
+                for (int k = 0; k < vectorOfBytes.get(index).get(0); k++)
+                    values.add(0f);
+                values.add(Float.valueOf(vectorOfBytes.get(index).get(2)));
+                index++;
+            }
+
+            if (values.size() < 64) {
+                index++;
+                for (int k = values.size(); k < 64; k++)
+                    values.add(0f);
+            }
+
+            List<List<Float>> fromZigZagValues = transformFromZigZag(values);
+            this.Gencoder.add(new Block(fromZigZagValues, type, new Pair<>(blockLine, blockColumn), new Pair<>(blockLine + 7, blockColumn + 7)));
+
+            switch (type) {
+                case "Y" -> type = "U";
+                case "U" -> type = "V";
+                case "V" -> {
+                    type = "Y";
+                    blockColumn += 8;
+                    if (blockColumn == imageWidth) {
+                        blockColumn = 0;
+                        blockLine += 8;
+                    }
+                }
+            }
+        }
+    }
+
+    public List<List<Float>> transformFromZigZag(List<Float> array) {
+        List<List<Float>> result = new ArrayList<>();
+        for (int i = 0; i < 8; i++)
+            result.add(new ArrayList<>());
+        int i = 0, j = 0, index = 0;
+        boolean isLine = true;
+        while (i <= 7 && j <= 7) {
+            if (isLine) {
+                result.get(i).add(array.get(index++));
+                if (j != 7)
+                    j++;
+                else
+                    i++;
+                result.get(i).add(array.get(index++));
+                i++;
+                j--;
+                while (j > 0 && i < 7) {
+                    result.get(i).add(array.get(index++));
+                    j--;
+                    i++;
+                }
+                isLine = false;
+            } else {
+                result.get(i).add(array.get(index++));
+                if (i != 7)
+                    i++;
+                else
+                    j++;
+                result.get(i).add(array.get(index++));
+                i--;
+                j++;
+                while (j < 7 && i > 0) {
+                    result.get(i).add(array.get(index++));
+                    i--;
+                    j++;
+                }
+                isLine = true;
+            }
+        }
+        return result;
     }
 
     public List<List<Float>> dequantizationPhase(List<List<Float>> matrix) {

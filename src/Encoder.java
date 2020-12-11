@@ -9,6 +9,7 @@ public class Encoder {
     private List<Block> Vencoder;
     private List<Block> Gencoder;
     private List<List<Integer>> quantizationMatrix;
+    private List<List<Integer>> vectorOfBytes;
 
     public Encoder(Image image) {
         this.image = image;
@@ -16,6 +17,7 @@ public class Encoder {
         this.Uencoder = new ArrayList<>();
         this.Vencoder = new ArrayList<>();
         this.Gencoder = new ArrayList<>();
+        this.vectorOfBytes = new ArrayList<>();
         this.quantizationMatrix = new ArrayList<>();
         quantizationMatrix.add(new ArrayList<>(Arrays.asList(6, 4, 4, 6, 10, 16, 20, 24)));
         quantizationMatrix.add(new ArrayList<>(Arrays.asList(5, 5, 6, 8, 10, 23, 24, 22)));
@@ -52,6 +54,72 @@ public class Encoder {
         for (int i = 0; i < Gencoder.size(); i++) {
             this.Gencoder.get(i).setValues(this.quantizationPhase(Gencoder.get(i).getValues()));
         }
+
+        //lab3
+        this.entropyEncoding();
+    }
+
+    private void entropyEncoding() {
+        for (int i = 0; i < Gencoder.size(); i++) {
+            List<Float> zigZagArray = zigZagParsing(Gencoder.get(i).getValues());
+            int runlength = 0, amplitude, size;
+
+            //DC coefficient
+            amplitude = Math.round(zigZagArray.get(0));
+            size = getSize(amplitude);
+            this.vectorOfBytes.add(new ArrayList<>(Arrays.asList(size, amplitude)));
+
+            for (int j = 1; j < zigZagArray.size(); j++) {
+                if (zigZagArray.get(j) != 0f) {
+                    amplitude = Math.round(zigZagArray.get(j));
+                    size = getSize(amplitude);
+                    this.vectorOfBytes.add(new ArrayList<>(Arrays.asList(runlength, size, amplitude)));
+                    runlength = 0;
+                } else runlength++;
+            }
+            if(runlength>0)
+                this.vectorOfBytes.add(new ArrayList<>(Arrays.asList(0, 0)));
+        }
+    }
+
+    public int getSize(int value) {
+        value = Math.abs(value);
+        int k = 1, n = 0;
+        while (value >= k) {
+            k *= 2;
+            n++;
+        }
+        return n;
+    }
+
+    public List<Float> zigZagParsing(List<List<Float>> matrix) {
+        List<Float> result = new ArrayList<>();
+        int i = 0, j = 0;
+        boolean up = true;
+        while (i <= 7 && j <= 7) {
+            if (up) {
+                result.add(matrix.get(i).get(j));
+                if (j != 7)
+                    j++;
+                else
+                    i++;
+                result.add(matrix.get(i++).get(j--));
+                while (j > 0 && i < 7)
+                    result.add(matrix.get(i++).get(j--));
+                up = false;
+            } else {
+                result.add(matrix.get(i).get(j));
+                if (i != 7)
+                    i++;
+                else
+                    j++;
+                result.add(matrix.get(i--).get(j++));
+                while (j < 7 && i > 0)
+                    result.add(matrix.get(i--).get(j++));
+                up = true;
+            }
+        }
+        return result;
     }
 
     public void formBlocksYUV() {
@@ -170,5 +238,13 @@ public class Encoder {
 
     public List<Block> getGencoder() {
         return Gencoder;
+    }
+
+    public List<List<Integer>> getVectorOfBytes() {
+        return this.vectorOfBytes;
+    }
+
+    public Image getImage(){
+        return this.image;
     }
 }
